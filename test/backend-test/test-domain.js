@@ -93,6 +93,58 @@ describe("Domain Expiry", () => {
                     }
                 );
             });
+
+            test("throws translatable error for scheme-only URL (https://)", async () => {
+                // Regression test: default URL of a new monitor caused a raw
+                // TypeError (Cannot read properties of null) instead of a TranslatableError
+                const monitor = {
+                    type: "http",
+                    url: "https://",
+                    domainExpiryNotification: true,
+                };
+                await assert.rejects(
+                    async () => await DomainExpiry.checkSupport(monitor),
+                    (error) => {
+                        assert.strictEqual(error.constructor.name, "TranslatableError");
+                        assert.strictEqual(error.message, "domain_expiry_unsupported_invalid_target");
+                        return true;
+                    }
+                );
+            });
+
+            test("throws error for target without registrable domain (https://com)", async () => {
+                // Regression test: a bare public suffix passed all checks and
+                // returned support info with a null domain
+                const monitor = {
+                    type: "http",
+                    url: "https://com",
+                    domainExpiryNotification: true,
+                };
+                await assert.rejects(
+                    async () => await DomainExpiry.checkSupport(monitor),
+                    (error) => {
+                        assert.strictEqual(error.constructor.name, "TranslatableError");
+                        assert.strictEqual(error.message, "domain_expiry_unsupported_invalid_target");
+                        return true;
+                    }
+                );
+            });
+
+            test("throws error for single-label hostname (localhost)", async () => {
+                const monitor = {
+                    type: "http",
+                    url: "https://localhost",
+                    domainExpiryNotification: true,
+                };
+                await assert.rejects(
+                    async () => await DomainExpiry.checkSupport(monitor),
+                    (error) => {
+                        assert.strictEqual(error.constructor.name, "TranslatableError");
+                        assert.strictEqual(error.message, "domain_expiry_unsupported_invalid_target");
+                        return true;
+                    }
+                );
+            });
         });
 
         describe("Domain Parsing", () => {
@@ -200,6 +252,88 @@ describe("Domain Expiry", () => {
                 assert.strictEqual(supportInfo.domain, "example.com");
                 assert.strictEqual(supportInfo.tld, "com");
             });
+        });
+    });
+
+    describe("isTargetSupported()", () => {
+        test("returns true for http monitor with valid domain", () => {
+            assert.strictEqual(DomainExpiry.isTargetSupported(monHttpCom), true);
+        });
+
+        test("returns true for port monitor with valid hostname", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "port",
+                    hostname: "example.com",
+                }),
+                true
+            );
+        });
+
+        test("returns false for unsupported monitor type", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "push",
+                }),
+                false
+            );
+        });
+
+        test("returns false for missing target", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "http",
+                    url: "",
+                }),
+                false
+            );
+        });
+
+        test("returns false for IP target", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "http",
+                    url: "https://127.0.0.1",
+                }),
+                false
+            );
+        });
+
+        test("returns false for scheme-only URL", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "http",
+                    url: "https://",
+                }),
+                false
+            );
+        });
+
+        test("returns false for target without registrable domain", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "http",
+                    url: "https://com",
+                }),
+                false
+            );
+        });
+
+        test("returns false for non-ICANN TLD", () => {
+            assert.strictEqual(
+                DomainExpiry.isTargetSupported({
+                    type: "http",
+                    url: "https://example.local",
+                }),
+                false
+            );
+        });
+
+        test("does not perform network requests", async () => {
+            // Must resolve synchronously without touching RDAP data,
+            // so it is safe to call on the monitor save path
+            const result = DomainExpiry.isTargetSupported(monHttpCom);
+            assert.strictEqual(typeof result, "boolean");
         });
     });
 

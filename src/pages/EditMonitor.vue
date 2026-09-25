@@ -2932,6 +2932,7 @@ export default {
             hasDomain: false,
             domainExpiryUnsupportedReason: null,
             checkMonitorDebounce: null,
+            checkDomainRequestId: 0,
             acceptedStatusCodeOptions: [],
             acceptedWebsocketCodeOptions: [],
             dnsresolvetypeOptions: [],
@@ -3299,18 +3300,23 @@ message HealthCheckResponse {
             }
 
             if (!this.showDomainExpiryNotification) {
+                // Invalidate any in-flight check, so its response cannot resurrect the support state
+                this.checkDomainRequestId++;
                 this.hasDomain = false;
                 this.domainExpiryUnsupportedReason = null;
                 return;
             }
 
             this.checkMonitorDebounce = setTimeout(() => {
-                this.$root.getSocket().emit("checkMointor", data, (res) => {
-                    const wasSupported = this.hasDomain;
-                    this.hasDomain = !!res?.ok;
-                    if (this.hasDomain !== wasSupported) {
-                        this.monitor.domainExpiryNotification = this.hasDomain;
+                const requestId = ++this.checkDomainRequestId;
+                this.$root.getSocket().emit("checkDomain", data, (res) => {
+                    // Ignore stale responses, only the latest request reflects the current form state
+                    if (requestId !== this.checkDomainRequestId) {
+                        return;
                     }
+                    // hasDomain only controls whether the checkbox is enabled and which hint is shown.
+                    // It must never overwrite monitor.domainExpiryNotification, which belongs to the user.
+                    this.hasDomain = !!res?.ok;
                     this.domainExpiryUnsupportedReason = res.msgi18n ? this.$t(res.msg, res.meta) : res.msg;
                 });
             }, 500);
@@ -3545,6 +3551,14 @@ message HealthCheckResponse {
         this.dnsresolvetypeOptions = dnsresolvetypeOptions;
         this.globalpingdnsresolvetypeoptions = globalpingdnsresolvetypeoptions;
         this.kafkaSaslMechanismOptions = kafkaSaslMechanismOptions;
+    },
+    beforeUnmount() {
+        // Cancel a pending domain expiry check so its response cannot touch a destroyed view
+        if (this.checkMonitorDebounce != null) {
+            clearTimeout(this.checkMonitorDebounce);
+            this.checkMonitorDebounce = null;
+        }
+        this.checkDomainRequestId++;
     },
     methods: {
         /**

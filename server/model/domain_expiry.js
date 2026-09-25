@@ -204,11 +204,15 @@ class DomainExpiry extends BeanModel {
     }
 
     /**
+     * Check that the monitor type and its target are eligible for domain expiry monitoring.
+     * This is the offline part of {@link checkSupport}: it performs no network requests and
+     * never throws anything other than TranslatableError, so incomplete input while
+     * editing a monitor results in a translatable reason instead of a raw error.
      * @param {Monitor} monitor Monitor object
-     * @throws {TranslatableError} Throws an error if the monitor type is unsupported or missing target.
-     * @returns {Promise<{ domain: string, tld: string }>} Domain expiry support info
+     * @throws {TranslatableError} Throws an error if the monitor type is unsupported or the target is not a supported domain.
+     * @returns {{ domain: string, publicSuffix: string }} Parsed domain info
      */
-    static async checkSupport(monitor) {
+    static checkTargetSupport(monitor) {
         if (!(monitor.type in TYPES_WITH_DOMAIN_EXPIRY_SUPPORT_VIA_FIELD)) {
             throw new TranslatableError("domain_expiry_unsupported_monitor_type");
         }
@@ -224,6 +228,10 @@ class DomainExpiry extends BeanModel {
         if (tld.isIp) {
             throw new TranslatableError("domain_expiry_unsupported_is_ip", { hostname: tld.hostname });
         }
+        // Incomplete input (e.g. "https://") or no registrable domain (e.g. "localhost", "https://com")
+        if (!tld.domain || !tld.publicSuffix) {
+            throw new TranslatableError("domain_expiry_unsupported_invalid_target", { target });
+        }
         // No one-letter public suffix exists; treat this as an incomplete/invalid input while typing.
         if (tld.publicSuffix.length < 2) {
             throw new TranslatableError("domain_expiry_public_suffix_too_short", { publicSuffix: tld.publicSuffix });
@@ -235,7 +243,35 @@ class DomainExpiry extends BeanModel {
             });
         }
 
-        const publicSuffix = tld.publicSuffix;
+        return {
+            domain: tld.domain,
+            publicSuffix: tld.publicSuffix,
+        };
+    }
+
+    /**
+     * Offline boolean variant of {@link checkTargetSupport}, used to decide whether the
+     * domain expiry notification setting may be persisted for a monitor.
+     * @param {Monitor} monitor Monitor object
+     * @returns {boolean} Whether the monitor type and target support domain expiry monitoring
+     */
+    static isTargetSupported(monitor) {
+        try {
+            DomainExpiry.checkTargetSupport(monitor);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * @param {Monitor} monitor Monitor object
+     * @throws {TranslatableError} Throws an error if the monitor type is unsupported or missing target.
+     * @returns {Promise<{ domain: string, tld: string }>} Domain expiry support info
+     */
+    static async checkSupport(monitor) {
+        const { domain, publicSuffix } = DomainExpiry.checkTargetSupport(monitor);
+
         const rootTld = publicSuffix.split(".").pop();
         const rdap = await getRdapServer(publicSuffix);
         if (!rdap) {
@@ -245,7 +281,7 @@ class DomainExpiry extends BeanModel {
         }
 
         return {
-            domain: tld.domain,
+            domain,
             tld: rootTld,
         };
     }

@@ -97,6 +97,7 @@ const app = server.app;
 
 log.debug("server", "Importing Monitor");
 const Monitor = require("./model/monitor");
+const DomainExpiry = require("./model/domain_expiry");
 const User = require("./model/user");
 
 log.debug("server", "Importing Settings");
@@ -764,6 +765,11 @@ let needSetup = false;
                 }
                 bean.user_id = socket.userID;
 
+                // Domain expiry notification may only stay enabled if the monitor type and target support it
+                if (!DomainExpiry.isTargetSupported(bean)) {
+                    bean.domainExpiryNotification = false;
+                }
+
                 bean.validate();
 
                 await R.store(bean);
@@ -935,6 +941,11 @@ let needSetup = false;
                 bean.ping_count = monitor.ping_count;
                 bean.ping_per_request_timeout = monitor.ping_per_request_timeout;
 
+                // Domain expiry notification may only stay enabled if the monitor type and target support it
+                if (!DomainExpiry.isTargetSupported(bean)) {
+                    bean.domainExpiryNotification = false;
+                }
+
                 bean.validate();
 
                 await R.store(bean);
@@ -1003,10 +1014,10 @@ let needSetup = false;
             }
         });
 
-        socket.on("checkMointor", async (partial, callback) => {
+        // Check if a monitor's target supports domain expiry monitoring
+        const checkDomainHandler = async (partial, callback) => {
             try {
                 checkLogin(socket);
-                const DomainExpiry = require("./model/domain_expiry");
                 const supportInfo = await DomainExpiry.checkSupport(partial);
                 callback({
                     ok: true,
@@ -1021,7 +1032,11 @@ let needSetup = false;
                     meta: e.meta ?? {},
                 });
             }
-        });
+        };
+
+        socket.on("checkDomain", checkDomainHandler);
+        // "checkMointor" is the original misspelled event name, kept as an alias for older clients
+        socket.on("checkMointor", checkDomainHandler);
 
         socket.on("getMonitorBeats", async (monitorID, period, callback) => {
             try {

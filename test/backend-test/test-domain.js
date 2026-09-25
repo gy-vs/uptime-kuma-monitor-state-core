@@ -93,6 +93,38 @@ describe("Domain Expiry", () => {
                     }
                 );
             });
+
+            test("throws TranslatableError (not TypeError) for scheme-only URL while typing", async () => {
+                const monitor = {
+                    type: "http",
+                    url: "https://",
+                    domainExpiryNotification: true,
+                };
+                await assert.rejects(
+                    async () => await DomainExpiry.checkSupport(monitor),
+                    (error) => {
+                        assert.strictEqual(error.constructor.name, "TranslatableError");
+                        assert.strictEqual(error.message, "domain_expiry_unsupported_missing_target");
+                        return true;
+                    }
+                );
+            });
+
+            test("throws TranslatableError (not TypeError) for input without hostname", async () => {
+                const monitor = {
+                    type: "http",
+                    url: "example..com",
+                    domainExpiryNotification: true,
+                };
+                await assert.rejects(
+                    async () => await DomainExpiry.checkSupport(monitor),
+                    (error) => {
+                        assert.strictEqual(error.constructor.name, "TranslatableError");
+                        assert.strictEqual(error.message, "domain_expiry_unsupported_missing_target");
+                        return true;
+                    }
+                );
+            });
         });
 
         describe("Domain Parsing", () => {

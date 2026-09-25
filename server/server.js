@@ -1003,7 +1003,12 @@ let needSetup = false;
             }
         });
 
-        socket.on("checkMointor", async (partial, callback) => {
+        /*
+         * Check if a monitor's target supports domain expiry monitoring.
+         * "checkMointor" (typo) is the original event name and is kept as an
+         * alias so older clients keep working.
+         */
+        const checkDomainHandler = async (partial, callback) => {
             try {
                 checkLogin(socket);
                 const DomainExpiry = require("./model/domain_expiry");
@@ -1021,7 +1026,9 @@ let needSetup = false;
                     meta: e.meta ?? {},
                 });
             }
-        });
+        };
+        socket.on("checkDomain", checkDomainHandler);
+        socket.on("checkMointor", checkDomainHandler);
 
         socket.on("getMonitorBeats", async (monitorID, period, callback) => {
             try {

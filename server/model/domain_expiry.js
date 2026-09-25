@@ -224,9 +224,15 @@ class DomainExpiry extends BeanModel {
         if (tld.isIp) {
             throw new TranslatableError("domain_expiry_unsupported_is_ip", { hostname: tld.hostname });
         }
+        // Incomplete input while typing (e.g. "https://") has no hostname at all; treat it like a missing target.
+        if (!tld.hostname) {
+            throw new TranslatableError("domain_expiry_unsupported_missing_target");
+        }
         // No one-letter public suffix exists; treat this as an incomplete/invalid input while typing.
-        if (tld.publicSuffix.length < 2) {
-            throw new TranslatableError("domain_expiry_public_suffix_too_short", { publicSuffix: tld.publicSuffix });
+        if (!tld.publicSuffix || tld.publicSuffix.length < 2) {
+            throw new TranslatableError("domain_expiry_public_suffix_too_short", {
+                publicSuffix: tld.publicSuffix ?? "",
+            });
         }
         if (!tld.isIcann) {
             throw new TranslatableError("domain_expiry_unsupported_is_icann", {

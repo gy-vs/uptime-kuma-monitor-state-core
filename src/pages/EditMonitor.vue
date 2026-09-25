@@ -2932,6 +2932,8 @@ export default {
             hasDomain: false,
             domainExpiryUnsupportedReason: null,
             checkMonitorDebounce: null,
+            checkMonitorRequest: 0,
+            domainExpiryInitialCheckPending: false,
             acceptedStatusCodeOptions: [],
             acceptedWebsocketCodeOptions: [],
             dnsresolvetypeOptions: [],
@@ -3305,13 +3307,36 @@ message HealthCheckResponse {
             }
 
             this.checkMonitorDebounce = setTimeout(() => {
-                this.$root.getSocket().emit("checkMointor", data, (res) => {
+                const checkRequest = ++this.checkMonitorRequest;
+                this.$root.getSocket().emit("checkDomain", data, (res) => {
+                    // A newer check was triggered while this one was in flight, ignore the stale response
+                    if (checkRequest !== this.checkMonitorRequest) {
+                        return;
+                    }
+
                     const wasSupported = this.hasDomain;
                     this.hasDomain = !!res?.ok;
-                    if (this.hasDomain !== wasSupported) {
+
+                    if (this.domainExpiryInitialCheckPending) {
+                        /*
+                         * First check after (re)loading an existing monitor: the saved
+                         * domainExpiryNotification is authoritative, so it may only be
+                         * switched off here (an unsupported target cannot notify), never on.
+                         */
+                        this.domainExpiryInitialCheckPending = false;
+                        if (!this.hasDomain) {
+                            this.monitor.domainExpiryNotification = false;
+                        }
+                    } else if (this.hasDomain !== wasSupported) {
+                        // The target gained or lost domain expiry support due to an edit
                         this.monitor.domainExpiryNotification = this.hasDomain;
                     }
-                    this.domainExpiryUnsupportedReason = res.msgi18n ? this.$t(res.msg, res.meta) : res.msg;
+
+                    this.domainExpiryUnsupportedReason = res?.ok
+                        ? null
+                        : res.msgi18n
+                          ? this.$t(res.msg, res.meta)
+                          : res.msg;
                 });
             }, 500);
         },
@@ -3585,6 +3610,12 @@ message HealthCheckResponse {
                         }
 
                         this.monitor = res.monitor;
+
+                        /*
+                         * The first domain expiry check after (re)loading this monitor must not
+                         * override the saved domainExpiryNotification (see monitorTypeUrlHost watcher)
+                         */
+                        this.domainExpiryInitialCheckPending = true;
 
                         if (this.isClone) {
                             /*

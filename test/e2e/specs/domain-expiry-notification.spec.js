@@ -102,4 +102,45 @@ test.describe("Domain Expiry Notification", () => {
 
         await screenshot(testInfo, page);
     });
+
+    test("unchecking persists after save and re-entering the edit page", async ({ page }, testInfo) => {
+        await page.goto("./add");
+        await login(page);
+
+        const monitorTypeSelect = page.getByTestId("monitor-type-select");
+        await monitorTypeSelect.selectOption("http");
+
+        await page.getByTestId("friendly-name-input").fill("Example Domain Expiry");
+        await page.getByTestId("url-input").fill("https://example.com");
+
+        const checkbox = page.getByLabel("Domain Name Expiry Notification");
+        await expect(checkbox).toBeChecked();
+
+        await checkbox.uncheck();
+        await expect(checkbox).not.toBeChecked();
+
+        await page.getByTestId("save-button").click();
+        await page.waitForURL("/dashboard/*");
+
+        // Re-enter the edit page (fresh component mount)
+        await page.getByRole("link", { name: "Edit" }).click();
+        await page.waitForURL("/edit/*");
+
+        // The checkbox becomes enabled once the debounced domain check has responded;
+        // that response must not override the saved value
+        await expect(checkbox).toBeEnabled();
+        await expect(checkbox).not.toBeChecked();
+
+        await screenshot(testInfo, page);
+
+        // Save again and verify the value still survives a full reload
+        await page.getByTestId("save-button").click();
+        await expect(page.getByTestId("save-button")).toBeEnabled();
+        await page.reload();
+
+        await expect(checkbox).toBeEnabled();
+        await expect(checkbox).not.toBeChecked();
+
+        await screenshot(testInfo, page);
+    });
 });
